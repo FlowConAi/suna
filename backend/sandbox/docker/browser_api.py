@@ -1,11 +1,10 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Body
-from playwright.async_api import async_playwright, Browser, Page, ElementHandle
+from playwright.async_api import async_playwright, Browser, Page
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 import asyncio
 import json
 import logging
-import re
 import base64
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -357,13 +356,13 @@ class BrowserAutomation:
                 self.current_page_index = 0
             except Exception as page_error:
                 print(f"Error finding existing page, creating new one. ( {page_error})")
-                # page = await self.browser.new_page()
+                page = await self.browser.new_page()
                 print("New page created successfully")
-                # self.pages.append(page)
+                self.pages.append(page)
                 self.current_page_index = 0
                 # Navigate to about:blank to ensure page is ready
                 # await page.goto("google.com", timeout=30000)
-                # print("Navigated to google.com")
+                print("Navigated to google.com")
                 
                 print("Browser initialization completed successfully")
         except Exception as e:
