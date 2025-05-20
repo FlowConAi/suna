@@ -12,11 +12,8 @@ import { Loader2, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { handleFiles } from './file-upload-handler';
 import { MessageInput } from './message-input';
-import { FileAttachment } from '../file-attachment';
 import { AttachmentGroup } from '../attachment-group';
 import { useModelSelection } from './_use-model-selection';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { toast } from 'sonner';
 
 export interface ChatInputHandles {
   getPendingFiles: () => File[];
@@ -199,9 +196,9 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
           }}
         >
           <div className="w-full text-sm flex flex-col justify-between items-start rounded-lg">
-            <CardContent className="w-full p-1.5 pb-2 pt-3 bg-sidebar rounded-2xl border">
+            <CardContent className="w-full p-1.5 pb-2 bg-sidebar rounded-2xl border">
               <AttachmentGroup
-                files={uploadedFiles}
+                files={uploadedFiles || []}
                 sandboxId={sandboxId}
                 onRemove={removeUploadedFile}
                 layout="inline"
