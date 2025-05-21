@@ -14,13 +14,62 @@ from typing import Union, Dict, Any, Optional, AsyncGenerator, List
 import os
 import json
 import asyncio
+import time
+
+from langfuse.decorators import observe
 from openai import OpenAIError
 import litellm
 from utils.logger import logger
 from utils.config import config
+from services.langfuse_integration import setup_langfuse
+
+# Import Langfuse context for automatic trace/span tracking
+# This is optional - the application will function without Langfuse
+try:
+    from langfuse.decorators import langfuse_context
+    # Check if langfuse_context is properly initialized
+    if hasattr(langfuse_context, "__module__") and langfuse_context.__module__ == "langfuse.decorators":
+        LANGFUSE_CONTEXT_AVAILABLE = True
+        logger.debug("Langfuse context system is available for automatic trace/span tracking")
+    else:
+        LANGFUSE_CONTEXT_AVAILABLE = False
+        logger.warning("Langfuse context system is not properly initialized. Using fallback mode.")
+except (ImportError, AttributeError) as e:
+    LANGFUSE_CONTEXT_AVAILABLE = False
+    logger.debug(f"Langfuse context system not available: {str(e)}. Using fallback mode.")
 
 # litellm.set_verbose=True
 litellm.modify_params=True
+
+# Configure LiteLLM to use Langfuse callbacks if available
+# Note: Langfuse integration is optional and the application will function without it
+try:
+    # Only attempt to set up Langfuse if it's enabled in configuration
+    if config.LANGFUSE_ENABLED:
+        logger.info("Langfuse integration is enabled in configuration. Attempting to set up...")
+
+        # Call setup_langfuse() which will check for required API keys
+        langfuse_setup_success = setup_langfuse()
+
+        if langfuse_setup_success:
+            # Successfully set up Langfuse, configure LiteLLM callbacks
+            litellm.success_callback = ["langfuse"]
+            litellm.failure_callback = ["langfuse"]
+            logger.info("✅ LiteLLM successfully configured with Langfuse callbacks for LLM observability")
+        else:
+            # setup_langfuse() returned False (already logged the specific reason)
+            logger.warning("⚠️ Langfuse integration is disabled. LiteLLM will operate without observability.")
+    else:
+        # Langfuse is not enabled in configuration
+        logger.info("Langfuse integration is not enabled in configuration (LANGFUSE_ENABLED is not set to true)")
+        logger.info("To enable LLM observability, set LANGFUSE_ENABLED=true in your .env file")
+except Exception as e:
+    # Catch any unexpected exceptions during setup
+    logger.warning(
+        f"⚠️ Unexpected error while configuring Langfuse integration: {str(e)}. "
+        f"LiteLLM will operate without observability."
+    )
+    # Continue without Langfuse callbacks
 
 # Constants
 MAX_RETRIES = 2
@@ -250,14 +299,26 @@ async def make_llm_api_call(
     top_p: Optional[float] = None,
     model_id: Optional[str] = None,
     enable_thinking: Optional[bool] = False,
-    reasoning_effort: Optional[str] = 'low'
+    reasoning_effort: Optional[str] = 'low',
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None
 ) -> Union[Dict[str, Any], AsyncGenerator]:
     """
-    Make an API call to a language model using LiteLLM.
+    Make an API call to a language model using LiteLLM with optional Langfuse observability.
+
+    This function integrates with Langfuse for LLM observability if available. The integration:
+    1. Uses the current Langfuse trace context if available (from @observe decorator)
+    2. Includes user_id and session_id in the trace if provided explicitly or from context
+    3. Adds appropriate metadata for cost tracking and filtering
+    4. Falls back gracefully if Langfuse is not available or encounters errors
+
+    Langfuse integration is completely optional. The function will work normally
+    even if Langfuse is not configured or encounters errors.
 
     Args:
         messages: List of message dictionaries for the conversation
-        model_name: Name of the model to use (e.g., "gpt-4", "claude-3", "openrouter/openai/gpt-4", "bedrock/anthropic.claude-3-sonnet-20240229-v1:0")
+        model_name: Name of the model to use (e.g., "gpt-4", "claude-3", "openrouter/openai/gpt-4")
         response_format: Desired format for the response
         temperature: Sampling temperature (0-1)
         max_tokens: Maximum tokens in the response
@@ -270,6 +331,16 @@ async def make_llm_api_call(
         model_id: Optional ARN for Bedrock inference profiles
         enable_thinking: Whether to enable thinking
         reasoning_effort: Level of reasoning effort
+        user_id: Optional user ID for tracing (overrides context if provided)
+        session_id: Optional session ID for tracing (overrides context if provided)
+        metadata: Optional additional metadata for Langfuse (merged with auto-generated metadata)
+
+    Langfuse Configuration:
+        To enable Langfuse observability, set the following in your .env file:
+        - LANGFUSE_ENABLED=true
+        - LANGFUSE_PUBLIC_KEY=your_public_key
+        - LANGFUSE_SECRET_KEY=your_secret_key
+        - LANGFUSE_HOST=https://cloud.langfuse.com (optional)
 
     Returns:
         Union[Dict[str, Any], AsyncGenerator]: API response or stream
@@ -303,7 +374,93 @@ async def make_llm_api_call(
             logger.debug(f"Attempt {attempt + 1}/{MAX_RETRIES}")
             # logger.debug(f"API request parameters: {json.dumps(params, indent=2)}")
 
-            response = await litellm.acompletion(**params)
+            # Prepare metadata for LiteLLM's native Langfuse integration
+            try:
+                # Extract provider for model categorization
+                provider = model_name.split('/')[0] if '/' in model_name else "unknown"
+
+                # Create minimal metadata for Langfuse tracking
+                langfuse_metadata = {
+                    # Essential fields for proper tracking
+                    "model": model_name,  # Required for cost tracking
+                    "tags": ["llm-api-call", provider]
+                }
+
+                # Get context values if available (for trace linking)
+                # Initialize context variables
+                context_trace_id = None
+                context_user_id = None
+                context_session_id = None
+
+                # Only attempt to access langfuse_context if the module is available
+                if LANGFUSE_CONTEXT_AVAILABLE:
+                    try:
+                        # Check if trace_id exists in context and is not None
+                        if hasattr(langfuse_context, "trace_id") and langfuse_context.trace_id is not None:
+                            context_trace_id = langfuse_context.trace_id
+                            langfuse_metadata["existing_trace_id"] = context_trace_id
+                            logger.debug(f"Using trace_id from Langfuse context: {context_trace_id}")
+
+                        # Check if user_id exists in context and is not None
+                        if hasattr(langfuse_context, "user_id") and langfuse_context.user_id is not None:
+                            context_user_id = langfuse_context.user_id
+                            logger.debug(f"Found user_id in Langfuse context: {context_user_id}")
+
+                        # Check if session_id exists in context and is not None
+                        if hasattr(langfuse_context, "session_id") and langfuse_context.session_id is not None:
+                            context_session_id = langfuse_context.session_id
+                            logger.debug(f"Found session_id in Langfuse context: {context_session_id}")
+                    except Exception as e:
+                        # Non-blocking error handling with detailed message
+                        logger.warning(
+                            f"Error accessing Langfuse context: {str(e)}. "
+                            f"Continuing without context values. "
+                            f"This won't affect core LLM functionality."
+                        )
+
+                # Add user and session tracking (explicit params override context)
+                # This maintains backward compatibility with code that doesn't use Langfuse context
+                effective_user_id = user_id if user_id is not None else context_user_id
+                effective_session_id = session_id if session_id is not None else context_session_id
+
+                # Add user and session IDs to metadata if available
+                if effective_user_id is not None:
+                    langfuse_metadata["trace_user_id"] = effective_user_id
+                if effective_session_id is not None:
+                    langfuse_metadata["session_id"] = effective_session_id
+
+                # Add OpenRouter/qwen3 specific tracking
+                if provider == "openrouter" and "qwen" in model_name.lower():
+                    langfuse_metadata["tags"].append("qwen3")
+                    langfuse_metadata["model_provider"] = "qwen"
+
+                # Add custom metadata if provided
+                if metadata:
+                    langfuse_metadata.update(metadata)
+
+                # Make the API call with Langfuse metadata
+                # LiteLLM will automatically handle token counting and cost tracking
+                try:
+                    # First attempt with Langfuse metadata
+                    response = await litellm.acompletion(**params, metadata=langfuse_metadata)
+                except Exception as langfuse_error:
+                    # If there's an error with Langfuse metadata, log it and retry without metadata
+                    logger.warning(
+                        f"Error making LLM API call with Langfuse metadata: {str(langfuse_error)}. "
+                        f"Retrying without observability tracking."
+                    )
+                    # Fall back to basic API call without metadata
+                    response = await litellm.acompletion(**params)
+            except Exception as e:
+                # Handle any errors in the overall Langfuse integration process
+                logger.warning(
+                    f"Langfuse integration error: {str(e)}. "
+                    f"Continuing without observability tracking. "
+                    f"This won't affect core LLM functionality."
+                )
+                # Fall back to basic API call without metadata
+                response = await litellm.acompletion(**params)
+
             logger.debug(f"Successfully received API response from {model_name}")
             logger.debug(f"Response: {response}")
             return response
@@ -339,7 +496,10 @@ async def test_openrouter():
             model_name="openrouter/openai/gpt-4o-mini",
             messages=test_messages,
             temperature=0.7,
-            max_tokens=100
+            max_tokens=100,
+            user_id="test-user",
+            session_id="test-session",
+            metadata={"test": True, "purpose": "openrouter_integration_test"}
         )
         print(f"Response: {response.choices[0].message.content}")
 
@@ -384,6 +544,9 @@ async def test_bedrock():
             temperature=0.7,
             # Claude 3.7 has issues with max_tokens, so omit it
             # max_tokens=100
+            user_id="test-user",
+            session_id="test-session",
+            metadata={"test": True, "purpose": "bedrock_integration_test"}
         )
         print(f"Response: {response.choices[0].message.content}")
         print(f"Model used: {response.model}")
