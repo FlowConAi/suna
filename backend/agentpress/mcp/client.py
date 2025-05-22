@@ -131,6 +131,21 @@ class MCPClient:
     
     async def disconnect(self) -> None:
         """Disconnect from the MCP server."""
+        self.connected = False
+        
+        # Cancel all pending requests
+        for request_id, future in self._pending_requests.items():
+            if not future.done():
+                future.cancel()
+        
+        # Cancel response handler task if running
+        if hasattr(self, '_response_task') and not self._response_task.done():
+            self._response_task.cancel()
+            try:
+                await self._response_task
+            except asyncio.CancelledError:
+                pass
+        
         if self.transport_type == "stdio" and self.process:
             self.process.terminate()
             try:
@@ -140,7 +155,6 @@ class MCPClient:
                 await self.process.wait()
             self.process = None
             
-        self.connected = False
         self._pending_requests.clear()
         logger.info(f"Disconnected from MCP server: {self.name}")
     
@@ -216,6 +230,9 @@ class MCPClient:
             
         except asyncio.TimeoutError:
             raise MCPClientError(f"Request timeout after {timeout} seconds")
+        except asyncio.CancelledError:
+            # Request was cancelled (e.g., during disconnect)
+            raise
         finally:
             self._pending_requests.pop(request_id, None)
     
@@ -259,17 +276,24 @@ class MCPClient:
         """Handle incoming responses from STDIO."""
         try:
             while self.connected and self.process and self.process.stdout:
-                line = await self.process.stdout.readline()
-                if not line:
-                    break
-                    
                 try:
-                    response = json.loads(line.decode().strip())
-                    await self._handle_response(response)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Invalid JSON from MCP server {self.name}: {e}")
+                    line = await self.process.stdout.readline()
+                    if not line:
+                        break
+                        
+                    try:
+                        response = json.loads(line.decode().strip())
+                        await self._handle_response(response)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Invalid JSON from MCP server {self.name}: {e}")
+                    except Exception as e:
+                        logger.error(f"Error handling response from {self.name}: {e}")
+                except asyncio.CancelledError:
+                    # Task was cancelled, exit cleanly
+                    break
                 except Exception as e:
-                    logger.error(f"Error handling response from {self.name}: {e}")
+                    logger.error(f"Error reading from {self.name}: {e}")
+                    break
                     
         except Exception as e:
             logger.error(f"Response handler error for {self.name}: {e}")
