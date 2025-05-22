@@ -187,16 +187,75 @@ NEXT_PUBLIC_ENV_MODE=LOCAL
 
 ### Implementing a New API Integration
 
-1. Add API function to `src/lib/api.ts`
-2. Create React Query hook in `src/hooks/react-query/`
-3. Use the hook in your component with proper loading/error states
+1. **Add API function** to `src/lib/api.ts`:
+   ```typescript
+   export async function getMyData(id: string): Promise<MyData> {
+     const response = await fetch(
+       `${BACKEND_URL}/my-endpoint/${id}`,
+       {
+         headers: await getAuthHeaders(),
+       }
+     );
+     
+     if (!response.ok) {
+       throw new Error('Failed to fetch data');
+     }
+     
+     return response.json();
+   }
+   ```
+
+2. **Create React Query hook** in `src/hooks/react-query/`:
+   ```typescript
+   export function useMyData(id: string) {
+     return useQuery({
+       queryKey: ['my-data', id],
+       queryFn: () => getMyData(id),
+       enabled: !!id,
+     });
+   }
+   ```
+
+3. **Use in component**:
+   ```typescript
+   function MyComponent({ id }: { id: string }) {
+     const { data, isLoading, error } = useMyData(id);
+     
+     if (isLoading) return <Skeleton />;
+     if (error) return <ErrorMessage error={error} />;
+     
+     return <DataDisplay data={data} />;
+   }
+   ```
 
 ### Adding a New Route
 
 1. Create a new directory in the appropriate section of `src/app/`
-2. Add `page.tsx` for the route content
+2. Add `page.tsx` for the route content:
+   ```typescript
+   export default async function MyPage() {
+     // Server component - can fetch data
+     const data = await fetchData();
+     
+     return (
+       <div>
+         <ClientComponent data={data} />
+       </div>
+     );
+   }
+   ```
 3. Add `layout.tsx` if needed for specialized layout
-4. Update navigation in sidebar if applicable
+4. Update navigation in sidebar:
+   ```typescript
+   // components/sidebar/nav-main.tsx
+   const navItems = [
+     {
+       title: 'My New Route',
+       url: '/my-route',
+       icon: IconComponent,
+     },
+   ];
+   ```
 
 ## Debugging Tips
 
@@ -227,3 +286,267 @@ NEXT_PUBLIC_ENV_MODE=LOCAL
 3. Use windowing for long lists of items
 4. Optimize image sizes and apply proper loading strategies
 5. Implement code splitting with dynamic imports
+
+## Real-time Streaming Implementation
+
+### EventSource Architecture
+
+The frontend uses EventSource API for Server-Sent Events:
+
+```typescript
+// lib/api.ts - streamAgent function
+const eventSource = new EventSource(
+  `${BACKEND_URL}/agent-run/${agentRunId}/stream?token=${token}`
+);
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  // Process different message types
+};
+```
+
+### Message Processing
+
+1. **Streaming Text Assembly**:
+   - Chunks arrive with sequence numbers
+   - Frontend sorts and concatenates chunks
+   - Handles out-of-order delivery
+
+2. **Tool Result Handling**:
+   - Tool results rendered by specific components
+   - Located in `components/thread/tool-views/`
+   - Registry pattern for tool view mapping
+
+3. **Status Updates**:
+   - Real-time tool execution status
+   - Cost tracking and token usage
+   - Error propagation
+
+### useAgentStream Hook
+
+Core hook for managing streaming state:
+
+```typescript
+const {
+  status,
+  isStreaming,
+  startStream,
+  stopStream,
+  orderedTextContent,
+  toolCall,
+  toolCalls
+} = useAgentStream({
+  onMessage: (message) => { /* handle message */ },
+  onError: (error) => { /* handle error */ },
+  onClose: () => { /* cleanup */ }
+});
+```
+
+## Security Considerations
+
+### Authentication
+- JWT tokens stored in Supabase Auth
+- Bearer token authentication for API calls
+- Query parameter auth for SSE endpoints (limitation of EventSource)
+
+### Data Protection
+- Sanitize user-generated content before rendering
+- Use proper CSP headers (configure in Next.js)
+- Validate all API responses
+
+### CORS Configuration
+- Backend must allow frontend origin
+- Configure in production deployment
+
+## State Management Patterns
+
+### Global State (Zustand)
+```typescript
+// For cross-component state
+const useAppStore = create((set) => ({
+  activeThreadId: null,
+  setActiveThreadId: (id) => set({ activeThreadId: id })
+}));
+```
+
+### Server State (React Query)
+```typescript
+// For API data with caching
+const { data, isLoading, error } = useQuery({
+  queryKey: ['thread', threadId],
+  queryFn: () => getThread(threadId),
+  staleTime: 5 * 60 * 1000, // 5 minutes
+});
+```
+
+### Local State (React)
+```typescript
+// For component-specific state
+const [isOpen, setIsOpen] = useState(false);
+```
+
+## Error Handling Patterns
+
+### API Error Handling
+```typescript
+try {
+  const response = await fetch(url);
+  if (!response.ok) {
+    const error = await response.json();
+    throw new APIError(error.message, response.status);
+  }
+  return response.json();
+} catch (error) {
+  // Handle network errors
+  if (error instanceof TypeError) {
+    throw new NetworkError('Connection failed');
+  }
+  throw error;
+}
+```
+
+### Component Error Boundaries
+```typescript
+// app/layout.tsx
+<ErrorBoundary fallback={<ErrorFallback />}>
+  {children}
+</ErrorBoundary>
+```
+
+### Maintenance Detection
+- Health check in dashboard layout
+- Automatic maintenance page display
+- High-demand modal alerts
+
+## Testing Setup (Currently Missing)
+
+### Recommended Configuration
+
+1. **Install Dependencies**:
+   ```bash
+   npm install --save-dev jest @testing-library/react \
+     @testing-library/jest-dom @testing-library/user-event \
+     ts-jest @types/jest
+   ```
+
+2. **Jest Configuration** (`jest.config.js`):
+   ```javascript
+   module.exports = {
+     preset: 'ts-jest',
+     testEnvironment: 'jsdom',
+     setupFilesAfterEnv: ['<rootDir>/src/test/setup.ts'],
+     moduleNameMapper: {
+       '^@/(.*)$': '<rootDir>/src/$1',
+     },
+   };
+   ```
+
+3. **Test Structure**:
+   ```
+   src/
+   ├── __tests__/
+   │   ├── components/
+   │   ├── hooks/
+   │   └── utils/
+   └── test/
+       └── setup.ts
+   ```
+
+## Tool View Implementation Guide
+
+### Creating a New Tool View
+
+1. **Create Component** in `components/thread/tool-views/`:
+   ```typescript
+   interface MyToolViewProps {
+     content: any;
+     isStreaming?: boolean;
+   }
+   
+   export function MyToolView({ content, isStreaming }: MyToolViewProps) {
+     return (
+       <div className="tool-result">
+         {/* Render tool output */}
+       </div>
+     );
+   }
+   ```
+
+2. **Register in ToolViewRegistry**:
+   ```typescript
+   // tool-views/wrapper/ToolViewRegistry.tsx
+   const toolViewMap: Record<string, ComponentType<any>> = {
+     'my_tool': MyToolView,
+     // ... other tools
+   };
+   ```
+
+3. **Handle in ToolViewWrapper**:
+   - Automatic selection based on tool name
+   - Fallback to GenericToolView
+
+## Deployment Considerations
+
+### Environment Variables
+```bash
+# Production
+NEXT_PUBLIC_BACKEND_URL=https://api.suna.so/api
+NEXT_PUBLIC_URL=https://suna.so
+NEXT_PUBLIC_ENV_MODE=PRODUCTION
+
+# Staging
+NEXT_PUBLIC_BACKEND_URL=https://staging-api.suna.so/api
+NEXT_PUBLIC_URL=https://staging.suna.so
+NEXT_PUBLIC_ENV_MODE=STAGING
+```
+
+### Build Optimization
+- Enable SWC minification
+- Configure image optimization
+- Set up CDN for static assets
+- Enable gzip compression
+
+### Docker Configuration
+- Multi-stage build for smaller images
+- Non-root user for security
+- Health check endpoint
+
+## Common Development Patterns
+
+### Loading States
+```typescript
+if (isLoading) {
+  return <ThreadSkeleton />;
+}
+```
+
+### Empty States
+```typescript
+if (!data || data.length === 0) {
+  return <EmptyState message="No threads yet" />;
+}
+```
+
+### Optimistic Updates
+```typescript
+const mutation = useMutation({
+  mutationFn: updateThread,
+  onMutate: async (newData) => {
+    // Cancel queries
+    await queryClient.cancelQueries(['thread', threadId]);
+    
+    // Optimistic update
+    const previousData = queryClient.getQueryData(['thread', threadId]);
+    queryClient.setQueryData(['thread', threadId], newData);
+    
+    return { previousData };
+  },
+  onError: (err, newData, context) => {
+    // Rollback on error
+    queryClient.setQueryData(
+      ['thread', threadId], 
+      context.previousData
+    );
+  },
+});
+```
