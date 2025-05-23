@@ -84,6 +84,23 @@ See `backend/CLAUDE.md` and `frontend/CLAUDE.md` for detailed documentation on e
 
 The LLM service (`backend/services/llm.py`) provides a unified interface for making API calls to various language models using LiteLLM. The Langfuse integration (`backend/services/langfuse_integration.py`) provides observability for LLM API calls, tracking usage, costs, and performance metrics.
 
+### Supported Models
+
+- **Anthropic**: Claude 3.7 Sonnet, Claude 3.5 Haiku, etc.
+- **OpenAI**: GPT-4, GPT-3.5-turbo
+- **Google**: Gemini models via Vertex AI
+- **AWS Bedrock**: Various models
+- **OpenRouter**: Access to multiple providers
+
+### Model Configuration
+
+Set default model in `.env`:
+```
+MODEL_TO_USE=anthropic/claude-3-7-sonnet-latest
+```
+
+Models can be changed per request through the API.
+
 ### Langfuse Configuration
 
 To enable Langfuse observability, add the following to the `.env` file:
@@ -94,6 +111,17 @@ LANGFUSE_PUBLIC_KEY=your_public_key
 LANGFUSE_SECRET_KEY=your_secret_key
 LANGFUSE_HOST=https://cloud.langfuse.com  # Optional, defaults to cloud.langfuse.com
 ```
+
+### AgentPress Framework
+
+Suna uses the custom AgentPress framework for agent orchestration:
+
+- **Tool Management**: Dynamic tool registration with multiple schema formats
+- **Context Management**: Automatic summarization at token limits
+- **Response Processing**: Streaming and non-streaming with tool execution
+- **Multi-format Support**: OpenAPI and XML tool calling formats
+
+See `backend/CLAUDE.md` for detailed AgentPress documentation.
 
 ## Environment Configuration
 
@@ -126,11 +154,110 @@ supabase db push
    - Frontend: `cd frontend && npm run dev`
 5. Access the application at http://localhost:3000
 
+## Security Warnings
+
+⚠️ **Critical Security Issues to Address**:
+
+1. **JWT Signature Verification Disabled**: The backend currently has JWT signature verification disabled in `backend/utils/auth_utils.py`. This MUST be enabled in production.
+2. **No Rate Limiting**: The application lacks rate limiting, making it vulnerable to abuse.
+3. **Hardcoded Values**: Several sensitive values are hardcoded and should be moved to environment variables.
+
+See `backend/CLAUDE.md` for detailed security guidelines.
+
 ## Troubleshooting Common Issues
 
 1. **API Health Check Issues**: If you see maintenance pages, check API connectivity with `curl http://localhost:8000/api/health`
 2. **Environment Configuration**: Verify `.env` files exist in both frontend and backend directories
 3. **Database Connection**: Ensure Supabase credentials are correct in backend/.env
 4. **Browser-side blocking**: If browser shows "ERR_BLOCKED_BY_CLIENT", check browser extensions/settings
+5. **Redis Connection Issues**: 
+   - Use 'localhost' when running API locally and Redis in Docker
+   - Use 'redis' when both are in Docker
+   - Check with `redis-cli ping`
+6. **Streaming Not Working**:
+   - Verify authentication token is passed correctly
+   - Check browser console for EventSource errors
+   - Ensure CORS is configured properly
+7. **Tool Execution Failures**:
+   - Check sandbox is running: look for Daytona status
+   - Verify tool registration in `agent/run.py`
+   - Check tool-specific API keys in `.env`
 
 For component-specific guidance, refer to `backend/CLAUDE.md` and `frontend/CLAUDE.md`.
+
+## Testing Strategy
+
+### Current State
+The project currently lacks comprehensive testing. Both backend and frontend have testing frameworks in dependencies but no actual tests.
+
+### Recommended Implementation
+
+1. **Backend Testing** (pytest):
+   ```bash
+   cd backend
+   poetry add --dev pytest pytest-asyncio pytest-cov
+   poetry run pytest --cov=. --cov-report=term-missing
+   ```
+
+2. **Frontend Testing** (Jest + React Testing Library):
+   ```bash
+   cd frontend
+   npm install --save-dev jest @testing-library/react
+   npm run test
+   ```
+
+3. **E2E Testing** (Playwright):
+   ```bash
+   npm install --save-dev @playwright/test
+   npx playwright test
+   ```
+
+See individual CLAUDE.md files for detailed testing setup instructions.
+
+## Deployment Guide
+
+### Production Deployment
+
+1. **Backend Deployment** (Fly.io):
+   ```bash
+   cd backend
+   fly deploy --config fly.production.toml
+   ```
+
+2. **Frontend Deployment** (Vercel/Netlify):
+   ```bash
+   cd frontend
+   npm run build
+   # Deploy dist/ folder
+   ```
+
+3. **Database Setup**:
+   - Run migrations: `supabase db push`
+   - Configure RLS policies
+   - Set up billing integration
+
+4. **Required Services**:
+   - Redis (with persistence enabled)
+   - RabbitMQ (for background tasks)
+   - S3-compatible storage (for file uploads)
+   - Daytona (for sandboxes)
+
+### Environment-Specific Configuration
+
+- **Production**: Strict CORS, enabled auth, production API keys
+- **Staging**: Relaxed CORS, test API keys, debug logging
+- **Development**: Local services, mock integrations available
+
+## Architecture Diagrams
+
+Detailed architecture diagrams are available in:
+- `docs/images/architecture_diagram.svg` - System overview
+- `docs/analysis/` - Detailed component analysis
+
+## Contributing Guidelines
+
+See `CONTRIBUTING.md` for:
+- Code style guidelines
+- PR process
+- Development setup
+- Testing requirements
