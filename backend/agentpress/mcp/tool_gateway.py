@@ -1,10 +1,11 @@
 """MCP tool gateway for integrating MCP tools with Suna's tool gating system."""
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Type
 from .server_manager import MCPServerManager
 from .tool_wrapper import MCPToolWrapper
 from agentpress.tool_registry import ToolRegistry
+from agentpress.tool import Tool
 
 
 logger = logging.getLogger(__name__)
@@ -34,11 +35,12 @@ class MCPToolGateway:
         self.registered_tools: List[Any] = []
         self._tool_cache: Dict[str, List[Dict[str, Any]]] = {}
     
-    async def register_mcp_tools(self, project_id: str) -> None:
+    async def register_mcp_tools(self, project_id: str, thread_manager=None) -> None:
         """Register MCP tools for a specific project based on gating rules.
         
         Args:
             project_id: Project identifier
+            thread_manager: Optional thread manager for tool initialization
         """
         if not self.enabled:
             logger.info("MCP integration is disabled")
@@ -52,6 +54,10 @@ class MCPToolGateway:
             allowed_tools = self._filter_tools_by_gating(available_tools, project_id)
             
             logger.info(f"Registering {len(allowed_tools)} MCP tools for project {project_id}")
+            
+            # Store project_id and thread_manager for tool registration
+            self._current_project_id = project_id
+            self._current_thread_manager = thread_manager
             
             # Register each allowed tool
             for tool_info in allowed_tools:
@@ -173,12 +179,17 @@ class MCPToolGateway:
         # Generate Suna tool class
         tool_class = wrapper.get_suna_tool_class()
         
-        # Register with tool registry
-        self.tool_registry.register_tool(tool_class)
+        # Register with tool registry, passing required arguments
+        register_kwargs = {}
+        if hasattr(self, '_current_project_id'):
+            register_kwargs['project_id'] = self._current_project_id
+        if hasattr(self, '_current_thread_manager') and self._current_thread_manager:
+            register_kwargs['thread_manager'] = self._current_thread_manager
+            
+        self.tool_registry.register_tool(tool_class, **register_kwargs)
         
-        # Track registered tool
-        tool_instance = tool_class()
-        self.registered_tools.append(tool_instance)
+        # Track registered tool class (not instance)
+        self.registered_tools.append(tool_class)
         
         logger.debug(f"Registered MCP tool: {tool_info['name']} from {mcp_client.name}")
     
@@ -245,6 +256,39 @@ class MCPToolGateway:
             ],
             "config": self._get_effective_config(project_id)
         }
+    
+    def get_enabled_tool_classes(self) -> List[Type[Tool]]:
+        """Get list of registered tool classes.
+        
+        Returns:
+            List of tool classes that have been registered
+        """
+        return self.registered_tools
+    
+    def enable_tools(self, pattern: str) -> None:
+        """Enable tools matching a pattern.
+        
+        Args:
+            pattern: Tool name pattern (supports wildcards)
+        """
+        # This would be implemented based on the gating configuration
+        # For now, it's a placeholder that doesn't affect registered_tools
+        logger.debug(f"Enabling tools matching pattern: {pattern}")
+    
+    def disable_tools(self, pattern: str) -> None:
+        """Disable tools matching a pattern.
+        
+        Args:
+            pattern: Tool name pattern (supports wildcards)
+        """
+        # This would be implemented based on the gating configuration
+        # For now, it's a placeholder that doesn't affect registered_tools
+        logger.debug(f"Disabling tools matching pattern: {pattern}")
+    
+    async def cleanup(self) -> None:
+        """Cleanup all resources including unregistering tools and disconnecting servers."""
+        await self.unregister_mcp_tools()
+        await self.server_manager.disconnect_all()
     
     async def for_project(self, project_id: str):
         """Context manager for project-scoped tool registration.

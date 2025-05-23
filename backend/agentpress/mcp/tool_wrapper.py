@@ -3,7 +3,8 @@
 import re
 import logging
 from typing import Dict, Any, List, Optional, Type, Union
-from agentpress.tool import Tool, ToolResult, ToolSchema, XMLTagSchema, SchemaType, openapi_schema, xml_schema
+from agentpress.tool import Tool, ToolResult, ToolSchema, XMLTagSchema, XMLNodeMapping, SchemaType, openapi_schema, xml_schema
+from sandbox.tool_base import SandboxToolsBase
 
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,10 @@ class MCPToolWrapper:
     
     def get_openapi_schema(self) -> Dict[str, Any]:
         """Generate OpenAPI schema for this MCP tool."""
-        function_name = f"mcp_{self._normalize_name(self.server_name)}_{self._normalize_name(self.tool_name)}"
+        # For function names, replace hyphens with underscores since Python identifiers can't have hyphens
+        server_name_normalized = self.server_name.lower().replace('-', '_')
+        tool_name_normalized = self.tool_name.lower().replace('-', '_')
+        function_name = f"mcp_{server_name_normalized}_{tool_name_normalized}"
         
         return {
             "type": "function",
@@ -62,55 +66,79 @@ class MCPToolWrapper:
             # Use attributes for simple types, content for complex
             node_type = "attribute" if param_def.get("type") in ["string", "number", "integer", "boolean"] else "content"
             
-            mappings.append({
-                "param_name": param_name,
-                "node_type": node_type,
-                "path": "."
-            })
+            mappings.append(XMLNodeMapping(
+                param_name=param_name,
+                node_type=node_type,
+                path="."
+            ))
         
         example = f"<{tag_name}>{self._generate_xml_example(flattened_params)}</{tag_name}>"
         
         return XMLTagSchema(
             tag_name=tag_name,
-            description=f"{self.description} (via MCP server: {self.server_name})",
             mappings=mappings,
             example=example
         )
     
     def get_suna_tool_class(self) -> Type[Tool]:
         """Generate a Suna Tool class for this MCP tool."""
-        class_name = f"MCP{self._normalize_name(self.server_name, capitalize=True)}{self._normalize_name(self.tool_name, capitalize=True)}Tool"
+        # For class names, remove hyphens and capitalize
+        server_name_cap = ''.join(part.capitalize() for part in self.server_name.split('-'))
+        tool_name_cap = ''.join(part.capitalize() for part in self.tool_name.split('-'))
+        class_name = f"MCP{server_name_cap}{tool_name_cap}Tool"
         
-        # Create method name
-        method_name = f"mcp_{self._normalize_name(self.server_name)}_{self._normalize_name(self.tool_name)}"
+        # Create method name - must use underscores for Python identifiers
+        server_name_normalized = self.server_name.lower().replace('-', '_')
+        tool_name_normalized = self.tool_name.lower().replace('-', '_')
+        method_name = f"mcp_{server_name_normalized}_{tool_name_normalized}"
         
         # Get schemas
-        openapi_schema = self.get_openapi_schema()
-        xml_schema = self.get_xml_schema()
+        openapi_schema_val = self.get_openapi_schema()
+        xml_schema_val = self.get_xml_schema()
         
+        # Capture wrapper in closure
+        wrapper = self
+        
+        # Create a proper Tool subclass
+        class MCPToolClass(SandboxToolsBase):
+            """Dynamically generated MCP tool class."""
+            
+            def __init__(self, project_id: str, thread_manager):
+                """Initialize the MCP tool."""
+                super().__init__(project_id, thread_manager)
+                self._mcp_wrapper = wrapper
+                self._mcp_tool_name = wrapper.tool_name
+                self._mcp_server_name = wrapper.server_name
+        
+        # Create the tool method
         async def tool_method(self, **kwargs) -> ToolResult:
-            """Generated method for MCP tool."""
-            return await wrapper.call_tool(**kwargs)
+            """Execute the MCP tool."""
+            return await self._mcp_wrapper.call_tool(**kwargs)
         
-        # Create the class dynamically
-        wrapper = self  # Capture wrapper in closure
+        # Apply decorators manually to avoid issues with dynamic application
+        # First apply xml_schema
+        tool_method = xml_schema(
+            tag_name=xml_schema_val.tag_name,
+            mappings=[{
+                "param_name": mapping.param_name,
+                "node_type": mapping.node_type,
+                "path": mapping.path,
+                "required": mapping.required
+            } for mapping in xml_schema_val.mappings],
+            example=xml_schema_val.example
+        )(tool_method)
         
-        class_dict = {
-            method_name: tool_method,
-            "_mcp_wrapper": wrapper,
-            "_mcp_tool_name": self.tool_name,
-            "_mcp_server_name": self.server_name
-        }
+        # Then apply openapi_schema
+        tool_method = openapi_schema(openapi_schema_val)(tool_method)
         
-        # Add schema decorators
-        tool_method = openapi_schema_decorator(openapi_schema)(tool_method)
-        tool_method = xml_schema_decorator(xml_schema)(tool_method)
-        class_dict[method_name] = tool_method
+        # Set the method on the class with the correct name
+        setattr(MCPToolClass, method_name, tool_method)
         
-        # Create the class
-        tool_class = type(class_name, (Tool,), class_dict)
+        # Set the class name
+        MCPToolClass.__name__ = class_name
+        MCPToolClass.__qualname__ = class_name
         
-        return tool_class
+        return MCPToolClass
     
     async def call_tool(self, **kwargs) -> ToolResult:
         """Execute the MCP tool with given arguments.
@@ -277,8 +305,16 @@ class MCPToolWrapper:
     
     def _normalize_name(self, name: str, capitalize: bool = False) -> str:
         """Normalize name for use in identifiers."""
-        # Replace non-alphanumeric with underscores
-        normalized = re.sub(r'[^a-zA-Z0-9]', '_', name.lower())
+        # Replace non-alphanumeric with underscores, but keep hyphens as hyphens for XML
+        normalized = name.lower()
+        # For Python identifiers, replace hyphens with underscores
+        if not capitalize and not any(c in normalized for c in ['-']):
+            # Only replace non-alphanumeric if no hyphens present
+            normalized = re.sub(r'[^a-zA-Z0-9]', '_', normalized)
+        else:
+            # Keep hyphens for XML tag names
+            normalized = re.sub(r'[^a-zA-Z0-9\-]', '_', normalized)
+        
         # Remove multiple consecutive underscores
         normalized = re.sub(r'_+', '_', normalized)
         # Remove leading/trailing underscores
@@ -286,37 +322,7 @@ class MCPToolWrapper:
         
         if capitalize:
             # Capitalize each part for class names
-            parts = normalized.split('_')
+            parts = re.split(r'[-_]', normalized)
             normalized = ''.join(part.capitalize() for part in parts if part)
         
         return normalized
-
-
-def openapi_schema_decorator(schema: Dict[str, Any]):
-    """Decorator to add OpenAPI schema to a method."""
-    def decorator(func):
-        if not hasattr(func, '_tool_schemas'):
-            func._tool_schemas = []
-        
-        tool_schema = ToolSchema(
-            schema_type=SchemaType.OPENAPI,
-            schema=schema
-        )
-        func._tool_schemas.append(tool_schema)
-        return func
-    return decorator
-
-
-def xml_schema_decorator(schema: XMLTagSchema):
-    """Decorator to add XML schema to a method."""
-    def decorator(func):
-        if not hasattr(func, '_tool_schemas'):
-            func._tool_schemas = []
-        
-        tool_schema = ToolSchema(
-            schema_type=SchemaType.XML,
-            schema=schema
-        )
-        func._tool_schemas.append(tool_schema)
-        return func
-    return decorator
