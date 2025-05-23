@@ -442,6 +442,8 @@ async def make_llm_api_call(
                 # LiteLLM will automatically handle token counting and cost tracking
                 try:
                     # First attempt with Langfuse metadata
+                    if params.get('stream'):
+                        logger.info(f"[LLM] Streaming request to {model_name}")
                     response = await litellm.acompletion(**params, metadata=langfuse_metadata)
                 except Exception as langfuse_error:
                     # If there's an error with Langfuse metadata, log it and retry without metadata

@@ -127,9 +127,20 @@ async def run_agent_background(
 
             # Store response in Redis list and publish notification
             response_json = json.dumps(response)
-            asyncio.create_task(redis.rpush(response_list_key, response_json))
-            asyncio.create_task(redis.publish(response_channel, "new"))
+            # Use await instead of create_task to ensure immediate execution
+            await redis.rpush(response_list_key, response_json)
+            await redis.publish(response_channel, "new")
             total_responses += 1
+            
+            # Log streaming chunks for debugging
+            if response.get('type') == 'assistant' and response.get('metadata'):
+                try:
+                    metadata = json.loads(response.get('metadata', '{}'))
+                    if metadata.get('stream_status') == 'chunk':
+                        import time
+                        logger.debug(f"[REDIS] Published chunk at {time.time()}")
+                except:
+                    pass
 
             # Check for agent-signaled completion or error
             if response.get('type') == 'status':

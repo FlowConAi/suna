@@ -294,12 +294,19 @@ export function useAgentStream(
       // Update status to streaming if we receive a valid message
       if (status !== 'streaming') updateStatus('streaming');
 
+      // Handle heartbeat messages
+      if (message.type === 'heartbeat') {
+        console.debug('[useAgentStream] Heartbeat received:', message.timestamp);
+        return; // Skip processing heartbeats
+      }
+
       switch (message.type) {
         case 'assistant':
           if (
             parsedMetadata.stream_status === 'chunk' &&
             parsedContent.content
           ) {
+            console.debug('[useAgentStream] Chunk received:', parsedContent.content.substring(0, 50));
             setTextContent((prev) => {
               return prev.concat({
                 sequence: message.sequence,

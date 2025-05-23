@@ -25,6 +25,39 @@ from run_agent_background import run_agent_background, _cleanup_redis_response_l
 
 # Initialize shared resources
 router = APIRouter()
+
+# Test endpoint for streaming verification
+@router.get("/test-stream")
+async def test_stream():
+    """Test endpoint to verify SSE streaming is working properly."""
+    async def generate():
+        logger.info("Starting test stream")
+        for i in range(10):
+            data = {
+                "type": "test",
+                "count": i,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "message": f"Test message {i}"
+            }
+            yield f"data: {json.dumps(data)}\n\n"
+            await asyncio.sleep(0)  # Force flush
+            await asyncio.sleep(0.5)  # Wait 500ms between messages
+        
+        # Send completion
+        yield f"data: {json.dumps({'type': 'complete', 'message': 'Test stream completed'})}\n\n"
+        logger.info("Test stream completed")
+    
+    return StreamingResponse(
+        generate(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Content-Type": "text/event-stream",
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
 thread_manager = None
 db = None
 instance_id = None # Global instance ID for this backend instance
@@ -476,10 +509,24 @@ async def stream_agent_run(
             listener_task = asyncio.create_task(listen_messages())
 
             # 4. Main loop to process messages from the queue
+            last_heartbeat_time = asyncio.get_event_loop().time()
+            heartbeat_interval = 5.0  # Send heartbeat every 5 seconds
+            
             while not terminate_stream:
                 try:
-                    queue_item = await message_queue.get()
-
+                    # Check if we need to send a heartbeat
+                    current_time = asyncio.get_event_loop().time()
+                    if current_time - last_heartbeat_time > heartbeat_interval:
+                        yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now(timezone.utc).isoformat()})}\n\n"
+                        await asyncio.sleep(0)  # Force flush
+                        last_heartbeat_time = current_time
+                    
+                    # Wait for queue item with timeout to allow heartbeats
+                    try:
+                        queue_item = await asyncio.wait_for(message_queue.get(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        continue  # No message, loop back to check heartbeat
+                    
                     if queue_item["type"] == "new_response":
                         # Fetch new responses from Redis list starting after the last processed index
                         new_start_index = last_processed_index + 1
@@ -491,24 +538,28 @@ async def stream_agent_run(
                             # logger.debug(f"Received {num_new} new responses for {agent_run_id} (index {new_start_index} onwards)")
                             for response in new_responses:
                                 yield f"data: {json.dumps(response)}\n\n"
+                                await asyncio.sleep(0)  # Force flush after each message
                                 # Check if this response signals completion
                                 if response.get('type') == 'status' and response.get('status') in ['completed', 'failed', 'stopped']:
                                     logger.info(f"Detected run completion via status message in stream: {response.get('status')}")
                                     terminate_stream = True
                                     break # Stop processing further new responses
                             last_processed_index += num_new
+                            last_heartbeat_time = current_time  # Reset heartbeat timer after sending data
                         if terminate_stream: break
 
                     elif queue_item["type"] == "control":
                         control_signal = queue_item["data"]
                         terminate_stream = True # Stop the stream on any control signal
                         yield f"data: {json.dumps({'type': 'status', 'status': control_signal})}\n\n"
+                        await asyncio.sleep(0)  # Force flush
                         break
 
                     elif queue_item["type"] == "error":
                         logger.error(f"Listener error for {agent_run_id}: {queue_item['data']}")
                         terminate_stream = True
                         yield f"data: {json.dumps({'type': 'status', 'status': 'error'})}\n\n"
+                        await asyncio.sleep(0)  # Force flush
                         break
 
                 except asyncio.CancelledError:
