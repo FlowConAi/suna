@@ -97,12 +97,17 @@ async def run_agent(
         "tool_blacklist": []     # No blocked tools
     }
 
-    # Setup MCP tools
-    logger.info("Setting up MCP servers...")
-    await setup_mcp_tools(thread_manager, project_id, mcp_config)
-    
-    # Use MCP-enhanced prompt when MCP is configured
-    use_mcp_prompt = True
+    # Setup MCP tools with error handling
+    use_mcp_prompt = False
+    try:
+        logger.info("Setting up MCP servers...")
+        await setup_mcp_tools(thread_manager, project_id, mcp_config)
+        use_mcp_prompt = True
+        logger.info("MCP servers setup completed successfully")
+    except Exception as e:
+        logger.error(f"Failed to setup MCP servers: {e}")
+        logger.warning("Continuing without MCP tools")
+        # Continue without MCP - don't fail the entire agent
 
 
     # Only include sample response if the model name does not contain "anthropic"
