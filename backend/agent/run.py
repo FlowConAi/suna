@@ -14,6 +14,7 @@ from utils.config import config
 
 from agentpress.thread_manager import ThreadManager
 from agentpress.response_processor import ProcessorConfig
+from agentpress.mcp.integration import setup_mcp_tools
 from agent.tools.sb_shell_tool import SandboxShellTool
 from agent.tools.sb_files_tool import SandboxFilesTool
 from agent.tools.sb_browser_tool import SandboxBrowserTool
@@ -74,6 +75,33 @@ async def run_agent(
     if config.RAPID_API_KEY:
         thread_manager.add_tool(DataProvidersTool)
 
+    # Configure and setup MCP servers
+    mcp_config = {
+        "servers": [
+            {
+                "name": "context7",
+                "command": "npx",
+                "args": ["-y", "@upstash/context7-mcp@latest"],
+                "enabled": True
+            },
+            {
+                "name": "basic-memory",
+                "command": "uvx",
+                "args": ["basic-memory", "mcp"],
+                "enabled": True
+            }
+        ],
+        "tool_whitelist": None,  # Allow all tools
+        "tool_blacklist": []     # No blocked tools
+    }
+
+    # Setup MCP tools
+    logger.info("Setting up MCP servers...")
+    await setup_mcp_tools(thread_manager, mcp_config)
+    
+    # Use MCP-enhanced prompt when MCP is configured
+    use_mcp_prompt = True
+
 
     # Only include sample response if the model name does not contain "anthropic"
     if "anthropic" not in model_name.lower():
@@ -81,9 +109,23 @@ async def run_agent(
         with open(sample_response_path, 'r') as file:
             sample_response = file.read()
         
-        system_message = { "role": "system", "content": get_system_prompt() + "\n\n <sample_assistant_response>" + sample_response + "</sample_assistant_response>" }
+        # Import MCP prompt if needed
+        if use_mcp_prompt:
+            from agent.prompt_mcp import get_system_prompt_with_mcp
+            prompt_content = get_system_prompt_with_mcp()
+        else:
+            prompt_content = get_system_prompt()
+        
+        system_message = { "role": "system", "content": prompt_content + "\n\n <sample_assistant_response>" + sample_response + "</sample_assistant_response>" }
     else:
-        system_message = { "role": "system", "content": get_system_prompt() }
+        # Import MCP prompt if needed
+        if use_mcp_prompt:
+            from agent.prompt_mcp import get_system_prompt_with_mcp
+            prompt_content = get_system_prompt_with_mcp()
+        else:
+            prompt_content = get_system_prompt()
+            
+        system_message = { "role": "system", "content": prompt_content }
 
     iteration_count = 0
     continue_execution = True
