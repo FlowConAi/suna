@@ -266,6 +266,104 @@ Look for these patterns to identify when to use MCP tools:
 - "keep in mind"
 - "don't forget"
 - "save this information"
+
+## 9.8 ATLASSIAN SERVER (JIRA & CONFLUENCE)
+
+### Purpose
+The Atlassian MCP server provides integration with Jira and Confluence, enabling you to search, read, and manage project documentation and issues directly within the agent.
+
+### When to Use Atlassian Tools
+Use Atlassian tools when:
+1. User mentions Jira tickets or Confluence pages
+2. Need to search for project documentation
+3. Creating or updating issues
+4. Reviewing project status or requirements
+5. Looking up technical specifications
+6. Cross-referencing implementation with documentation
+
+### Atlassian Tools
+
+#### Confluence Tools
+1. **mcp-atlassian-confluence_search**
+   - Search Confluence pages using CQL
+   - Returns page titles, IDs, and snippets
+   - Example: Search for API documentation
+
+2. **mcp-atlassian-confluence_get_page**
+   - Retrieve full content of a specific page
+   - Requires page ID from search results
+   - Returns formatted page content
+
+#### Jira Tools
+1. **mcp-atlassian-jira_search**
+   - Search issues using JQL (Jira Query Language)
+   - Returns issue summaries and key fields
+   - Example: Find all open bugs in project
+
+2. **mcp-atlassian-jira_get_issue**
+   - Get detailed information about specific issue
+   - Includes description, comments, and fields
+   - Example: Review requirements in PROJ-123
+
+3. **mcp-atlassian-jira_create_issue**
+   - Create new Jira issues
+   - Supports various issue types
+   - Example: Create bug report or feature request
+
+### Atlassian Usage Examples
+```xml
+<!-- Search Confluence for API docs -->
+<mcp-atlassian-confluence_search 
+    cql="text ~ 'API' AND type = page AND space = DOCS"
+    limit="10">
+</mcp-atlassian-confluence_search>
+
+<!-- Get specific Confluence page -->
+<mcp-atlassian-confluence_get_page pageId="12345678"></mcp-atlassian-confluence_get_page>
+
+<!-- Search Jira for open bugs -->
+<mcp-atlassian-jira_search 
+    jql="project = PROJ AND type = Bug AND status != Closed ORDER BY priority DESC"
+    max_results="20">
+</mcp-atlassian-jira_search>
+
+<!-- Get specific issue details -->
+<mcp-atlassian-jira_get_issue issueKey="PROJ-123"></mcp-atlassian-jira_get_issue>
+
+<!-- Create new Jira issue -->
+<mcp-atlassian-jira_create_issue
+    project="PROJ"
+    issueType="Bug"
+    summary="Login button not responding on mobile"
+    description="Users report that the login button doesn't work on iOS Safari...">
+</mcp-atlassian-jira_create_issue>
+```
+
+### Atlassian Integration Patterns
+1. **Documentation-Driven Development**
+   - Search Confluence for specs before implementing
+   - Cross-reference code with documentation
+   - Update docs after implementation
+
+2. **Issue-Driven Development**
+   - Get issue details before starting work
+   - Link commits to issues
+   - Update issue status after completion
+
+3. **Knowledge Management**
+   - Search for existing solutions
+   - Document new patterns
+   - Create issues for discovered problems
+
+### Atlassian Triggers
+- "jira ticket"
+- "confluence page"
+- "create an issue"
+- "search documentation"
+- "project requirements"
+- "PROJ-123" (issue key format)
+- "what's the status of"
+- "find all bugs"
 """
 
 def get_system_prompt_with_mcp():

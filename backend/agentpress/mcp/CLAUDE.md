@@ -189,6 +189,18 @@ Test scripts are provided:
    - Requires: `uvx` command
    - Tools: `write_note`, `read_note`, `search_notes`, etc.
 
+3. **atlassian**: Jira and Confluence integration
+   - Access Jira issues and Confluence pages
+   - Requires: Docker (uses `ghcr.io/sooperset/mcp-atlassian:latest`)
+   - Tools: `confluence_search`, `confluence_get_page`, `jira_get_issue`, `jira_create_issue`, `jira_search`
+   - Configuration via environment variables:
+     - `CONFLUENCE_URL`: Your Confluence instance URL
+     - `CONFLUENCE_USERNAME`: Username for authentication
+     - `CONFLUENCE_API_TOKEN`: API token for Confluence
+     - `JIRA_URL`: Your Jira instance URL
+     - `JIRA_USERNAME`: Username for authentication
+     - `JIRA_API_TOKEN`: API token for Jira
+
 ## Troubleshooting
 
 1. **"Command not found" errors**:

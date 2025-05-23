@@ -91,6 +91,31 @@ async def run_agent(
                 "command": "uvx",
                 "args": ["basic-memory", "mcp"],
                 "enabled": True
+            },
+            {
+                "name": "atlassian",
+                "transport": "stdio",
+                "command": "docker",
+                "args": [
+                    "run", "-i", "--rm",
+                    "-e", "CONFLUENCE_URL",
+                    "-e", "CONFLUENCE_USERNAME",
+                    "-e", "CONFLUENCE_API_TOKEN",
+                    "-e", "JIRA_URL",
+                    "-e", "JIRA_USERNAME",
+                    "-e", "JIRA_API_TOKEN",
+                    "-e", "ENABLED_TOOLS=confluence_search,confluence_get_page,jira_get_issue,jira_create_issue,jira_search",
+                    "ghcr.io/sooperset/mcp-atlassian:latest"
+                ],
+                "enabled": bool(os.getenv("JIRA_URL") or os.getenv("CONFLUENCE_URL")),
+                "env": {
+                    "CONFLUENCE_URL": os.getenv("CONFLUENCE_URL", ""),
+                    "CONFLUENCE_USERNAME": os.getenv("CONFLUENCE_USERNAME", ""),
+                    "CONFLUENCE_API_TOKEN": os.getenv("CONFLUENCE_API_TOKEN", ""),
+                    "JIRA_URL": os.getenv("JIRA_URL", ""),
+                    "JIRA_USERNAME": os.getenv("JIRA_USERNAME", ""),
+                    "JIRA_API_TOKEN": os.getenv("JIRA_API_TOKEN", "")
+                }
             }
         ],
         "tool_whitelist": None,  # Allow all tools

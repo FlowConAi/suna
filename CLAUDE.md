@@ -123,6 +123,23 @@ Suna uses the custom AgentPress framework for agent orchestration:
 
 See `backend/CLAUDE.md` for detailed AgentPress documentation.
 
+### MCP (Model Context Protocol) Integration
+
+Suna supports integration with MCP servers, enabling connections to external tools and services:
+
+- **Built-in MCP Servers**:
+  - **context7**: Real-time documentation lookup for libraries and frameworks
+  - **basic-memory**: Persistent memory storage across agent sessions
+  - **atlassian**: Jira and Confluence integration for project management
+
+- **Key Features**:
+  - Dynamic tool discovery and registration
+  - Support for multiple concurrent MCP servers
+  - Security through tool whitelisting/blacklisting
+  - Automatic error handling and graceful degradation
+
+See `backend/agentpress/mcp/CLAUDE.md` for MCP architecture details and `backend/docs/MCP_ATLASSIAN_SETUP.md` for Atlassian setup instructions.
+
 ## Environment Configuration
 
 The project uses environment variables for configuration, with separate `.env` files for backend and frontend.
@@ -133,6 +150,9 @@ Important environment variables:
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`: Supabase connection details
 - `MODEL_TO_USE`: Default LLM model to use (e.g., "anthropic/claude-3-7-sonnet-latest")
 - Various API keys for LLM providers, search services, and other integrations
+- **Atlassian MCP Integration** (optional):
+  - `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`: Confluence access
+  - `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN`: Jira access
 
 ## Database Migrations
 

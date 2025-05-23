@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass
 import uuid
@@ -86,12 +87,20 @@ class MCPClient:
     async def _connect_stdio(self) -> None:
         """Connect using STDIO transport."""
         try:
+            # Get environment variables from config if provided
+            env = None
+            if "env" in self.config and self.config["env"]:
+                # Start with current environment and update with provided vars
+                env = os.environ.copy()
+                env.update(self.config["env"])
+            
             self.process = await asyncio.create_subprocess_exec(
                 self.command,
                 *self.args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=env
             )
         except Exception as e:
             raise MCPConnectionError(f"Failed to start MCP server process: {e}")
