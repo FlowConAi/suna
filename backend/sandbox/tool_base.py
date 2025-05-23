@@ -44,9 +44,12 @@ class SandboxToolsBase(Tool):
                 # Store sandbox info
                 self._sandbox_id = sandbox_info['id']
                 self._sandbox_pass = sandbox_info.get('pass')
+                logger.debug(f"Found sandbox {self._sandbox_id} for project {self.project_id}")
                 
                 # Get or start the sandbox
+                logger.debug(f"Attempting to get or start sandbox {self._sandbox_id}")
                 self._sandbox = await get_or_start_sandbox(self._sandbox_id)
+                logger.debug(f"Successfully initialized sandbox {self._sandbox_id}")
                 
                 # # Log URLs if not already printed
                 # if not SandboxToolsBase._urls_printed:

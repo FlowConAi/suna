@@ -114,8 +114,11 @@ class SandboxFilesTool(SandboxToolsBase):
         try:
             # Ensure sandbox is initialized
             await self._ensure_sandbox()
+            logger.debug(f"Sandbox initialized for file creation: sandbox_id={self._sandbox_id}")
             
+            original_path = file_path
             file_path = self.clean_path(file_path)
+            logger.debug(f"Path cleaned: '{original_path}' -> '{file_path}'")
             full_path = f"{self.workspace_path}/{file_path}"
             if self._file_exists(full_path):
                 return self.fail_response(f"File '{file_path}' already exists. Use update_file to modify existing files.")
@@ -123,11 +126,29 @@ class SandboxFilesTool(SandboxToolsBase):
             # Create parent directories if needed
             parent_dir = '/'.join(full_path.split('/')[:-1])
             if parent_dir:
-                self.sandbox.fs.create_folder(parent_dir, "755")
+                logger.debug(f"Creating parent directory: {parent_dir}")
+                try:
+                    self.sandbox.fs.create_folder(parent_dir, "755")
+                    logger.debug(f"Parent directory created successfully: {parent_dir}")
+                except Exception as dir_err:
+                    logger.error(f"Failed to create parent directory '{parent_dir}': {str(dir_err)}")
+                    # Continue anyway as directory might already exist
             
             # Write the file content
-            self.sandbox.fs.upload_file(full_path, file_contents.encode())
-            self.sandbox.fs.set_file_permissions(full_path, permissions)
+            logger.debug(f"Uploading file to: {full_path}, content size: {len(file_contents)} chars")
+            try:
+                self.sandbox.fs.upload_file(full_path, file_contents.encode())
+                logger.debug(f"File uploaded successfully: {full_path}")
+            except Exception as upload_err:
+                logger.error(f"Failed to upload file '{full_path}': {str(upload_err)}")
+                raise
+            
+            try:
+                self.sandbox.fs.set_file_permissions(full_path, permissions)
+                logger.debug(f"File permissions set to {permissions} for: {full_path}")
+            except Exception as perm_err:
+                logger.warning(f"Failed to set permissions for '{full_path}': {str(perm_err)}")
+                # Don't fail if permissions can't be set
             
             # Get preview URL if it's an HTML file
             # preview_url = self._get_preview_url(file_path)
@@ -137,6 +158,7 @@ class SandboxFilesTool(SandboxToolsBase):
             
             return self.success_response(message)
         except Exception as e:
+            logger.error(f"Error creating file '{file_path}': {str(e)}", exc_info=True)
             return self.fail_response(f"Error creating file: {str(e)}")
 
     @openapi_schema({
@@ -218,6 +240,7 @@ class SandboxFilesTool(SandboxToolsBase):
             return self.success_response(message)
             
         except Exception as e:
+            logger.error(f"Error replacing string in file '{file_path}': {str(e)}", exc_info=True)
             return self.fail_response(f"Error replacing string: {str(e)}")
 
     @openapi_schema({
@@ -282,6 +305,7 @@ class SandboxFilesTool(SandboxToolsBase):
             
             return self.success_response(message)
         except Exception as e:
+            logger.error(f"Error rewriting file '{file_path}': {str(e)}", exc_info=True)
             return self.fail_response(f"Error rewriting file: {str(e)}")
 
     @openapi_schema({
