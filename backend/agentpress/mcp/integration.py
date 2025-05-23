@@ -42,33 +42,17 @@ async def setup_mcp_tools(
         }
     
     # Create server manager and tool gateway
-    server_manager = MCPServerManager()
-    tool_gateway = MCPToolGateway(server_manager)
-    
-    # Connect to configured servers
     servers = mcp_config.get("servers", [])
-    for server_config in servers:
-        try:
-            name = server_config.get("name")
-            command = server_config.get("command")
-            args = server_config.get("args", [])
-            env = server_config.get("env", {})
-            
-            if not name or not command:
-                logger.warning(f"Skipping invalid server config: {server_config}")
-                continue
-                
-            logger.info(f"Connecting to MCP server: {name}")
-            await server_manager.connect_server(
-                name=name,
-                command=command,
-                args=args,
-                env=env
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to MCP server {server_config.get('name')}: {e}")
-            # Continue with other servers even if one fails
+    server_manager = MCPServerManager(servers)
+    tool_gateway = MCPToolGateway(server_manager, thread_manager.tool_registry, mcp_config)
+    
+    # Connect to all configured servers
+    try:
+        logger.info(f"Connecting to MCP servers for project: {project_id}")
+        await server_manager.connect_to_servers(project_id)
+    except Exception as e:
+        logger.error(f"Failed to connect to MCP servers: {e}")
+        # Continue even if connection fails - tools may still be registered
     
     # Configure tool filtering (this is handled internally by tool_gateway)
     whitelist = mcp_config.get("tool_whitelist")

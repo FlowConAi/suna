@@ -80,12 +80,14 @@ async def run_agent(
         "servers": [
             {
                 "name": "context7",
+                "transport": "stdio",
                 "command": "npx",
                 "args": ["-y", "@upstash/context7-mcp@latest"],
                 "enabled": True
             },
             {
                 "name": "basic-memory",
+                "transport": "stdio",
                 "command": "uvx",
                 "args": ["basic-memory", "mcp"],
                 "enabled": True
@@ -97,7 +99,7 @@ async def run_agent(
 
     # Setup MCP tools
     logger.info("Setting up MCP servers...")
-    await setup_mcp_tools(thread_manager, mcp_config)
+    await setup_mcp_tools(thread_manager, project_id, mcp_config)
     
     # Use MCP-enhanced prompt when MCP is configured
     use_mcp_prompt = True
