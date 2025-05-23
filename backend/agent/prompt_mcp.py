@@ -1,3 +1,21 @@
+"""MCP-enhanced prompt for Suna agent.
+
+This module provides an enhanced system prompt that includes detailed guidance
+for using MCP (Model Context Protocol) tools. It extends the base prompt with
+specific instructions for Context7 (documentation lookup) and Basic-memory
+(persistent storage) servers.
+
+The MCP guidance helps the agent:
+- Understand when to use MCP tools vs native tools
+- Follow best practices for each MCP server
+- Handle MCP tool failures gracefully
+- Integrate MCP tools into complex workflows
+
+Usage:
+    from agent.prompt_mcp import get_system_prompt_with_mcp
+    
+    prompt = get_system_prompt_with_mcp()
+"""
 import datetime
 from agent.prompt import SYSTEM_PROMPT
 
