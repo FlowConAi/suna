@@ -150,3 +150,29 @@ class ToolRegistry:
                 examples[schema.xml_schema.tag_name] = schema.xml_schema.example
         logger.debug(f"Retrieved {len(examples)} XML examples")
         return examples
+    
+    def unregister_tool(self, tool_instance: Tool) -> None:
+        """Unregister a tool instance from the registry.
+        
+        Args:
+            tool_instance: The tool instance to unregister
+        """
+        # Remove from OpenAPI tools
+        to_remove = []
+        for tool_name, tool_info in self.tools.items():
+            if tool_info['instance'] == tool_instance:
+                to_remove.append(tool_name)
+        
+        for tool_name in to_remove:
+            del self.tools[tool_name]
+            logger.debug(f"Unregistered OpenAPI tool: {tool_name}")
+        
+        # Remove from XML tools
+        xml_to_remove = []
+        for tag_name, tool_info in self.xml_tools.items():
+            if tool_info['instance'] == tool_instance:
+                xml_to_remove.append(tag_name)
+        
+        for tag_name in xml_to_remove:
+            del self.xml_tools[tag_name]
+            logger.debug(f"Unregistered XML tool: {tag_name}")

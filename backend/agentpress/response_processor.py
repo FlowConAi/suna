@@ -172,6 +172,10 @@ class ResponseProcessor:
                         # print(chunk_content, end='', flush=True)
                         accumulated_content += chunk_content
                         current_xml_content += chunk_content
+                        
+                        # Log streaming chunks for debugging
+                        import time
+                        logger.debug(f"[STREAMING] LLM chunk at {time.time()}: {chunk_content[:50] if len(chunk_content) > 50 else chunk_content}...")
 
                         if not (config.max_xml_tool_calls > 0 and xml_tool_call_count >= config.max_xml_tool_calls):
                             # Yield ONLY content chunk (don't save)

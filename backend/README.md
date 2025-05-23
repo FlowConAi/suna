@@ -32,8 +32,11 @@ For local development, you might only need to run Redis and RabbitMQ, while work
 - You want to avoid rebuilding the API container on every change
 - You're running the API service directly on your machine
 
-To run just Redis and RabbitMQ for development:```bash
+To run just Redis and RabbitMQ for development:
+
+```bash
 docker compose up redis rabbitmq
+```
 
 Then you can run your API service locally with the following commands
 
@@ -47,7 +50,47 @@ cd frontend
 poetry run python3.11 -m dramatiq run_agent_background
 ```
 
-### Environment Configuration
+## LLM Service and Langfuse Integration
+
+The LLM service (`services/llm.py`) provides a unified interface for making API calls to various language models (OpenAI, Anthropic, OpenRouter, AWS Bedrock, etc.) using LiteLLM.
+
+### Features
+
+- Unified API for multiple LLM providers
+- Streaming support
+- Tool/function calling
+- Retry logic with exponential backoff
+- Comprehensive error handling
+- Optional Langfuse observability integration
+
+### Langfuse Observability Integration
+
+The Langfuse integration (`services/langfuse_integration.py`) provides observability for LLM API calls. This is an optional feature that allows you to track usage, costs, and performance metrics for your LLM API calls.
+
+#### Configuration
+
+To enable Langfuse observability, add the following to your `.env` file:
+
+```
+# Langfuse Configuration
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=your_public_key
+LANGFUSE_SECRET_KEY=your_secret_key
+LANGFUSE_HOST=https://cloud.langfuse.com  # Optional, defaults to cloud.langfuse.com
+```
+
+You can get your Langfuse API keys by signing up at [Langfuse](https://langfuse.com/).
+
+
+#### Fallback Behavior
+
+The Langfuse integration is designed to be completely optional and non-blocking:
+
+- If Langfuse is not configured, the application will continue to function normally without observability
+- If there are errors during Langfuse integration, they will be logged as warnings and the application will continue
+- The core LLM functionality will always work, even if Langfuse integration fails
+
+## Environment Configuration
 
 When running services individually, make sure to:
 
