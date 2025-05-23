@@ -276,7 +276,7 @@ class MCPServerManager:
         await self.disconnect_from_servers()
         logger.info("MCP server manager shutdown complete")
     
-    async def for_project(self, project_id: str):
+    def for_project(self, project_id: str):
         """Context manager for project-scoped server management.
         
         Args:

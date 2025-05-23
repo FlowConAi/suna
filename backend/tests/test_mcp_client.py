@@ -14,7 +14,10 @@ class TestMCPClient:
     def mock_process(self):
         """Mock subprocess for STDIO transport."""
         process = AsyncMock()
-        process.stdin = AsyncMock()
+        # stdin.write is synchronous, but drain is async
+        process.stdin = Mock()
+        process.stdin.write = Mock()
+        process.stdin.drain = AsyncMock()
         process.stdout = AsyncMock()
         process.stderr = AsyncMock()
         process.returncode = None
@@ -208,9 +211,12 @@ class TestMCPClient:
         client.connected = True
         client._request_id = 0
         
-        # Mock response
+        # Mock response - return response once, then empty to signal EOF
         response = {"jsonrpc": "2.0", "id": 1, "result": {"status": "ok"}}
-        mock_process.stdout.readline.return_value = json.dumps(response).encode() + b'\n'
+        mock_process.stdout.readline.side_effect = [
+            json.dumps(response).encode() + b'\n',
+            b''  # EOF to stop the read loop
+        ]
         
         result = await client.send_request("test/method", {"param": "value"})
         
@@ -241,7 +247,10 @@ class TestMCPClient:
             "id": 1,
             "error": {"code": -32601, "message": "Method not found"}
         }
-        mock_process.stdout.readline.return_value = json.dumps(error_response).encode() + b'\n'
+        mock_process.stdout.readline.side_effect = [
+            json.dumps(error_response).encode() + b'\n',
+            b''  # EOF to stop the read loop
+        ]
         
         with pytest.raises(MCPClientError, match="Method not found"):
             await client.send_request("invalid/method", {})

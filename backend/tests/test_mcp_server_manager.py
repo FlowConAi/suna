@@ -136,7 +136,7 @@ class TestMCPServerManager:
         manager = MCPServerManager(sample_server_configs)
         
         # Mock successful client connections
-        with patch('agentpress.mcp.client.MCPClient') as mock_client_class:
+        with patch('agentpress.mcp.server_manager.MCPClient') as mock_client_class:
             mock_clients = []
             for _ in range(2):  # Two enabled servers
                 mock_client = AsyncMock()
@@ -161,7 +161,7 @@ class TestMCPServerManager:
         """Test connection with some servers failing."""
         manager = MCPServerManager(sample_server_configs)
         
-        with patch('agentpress.mcp.client.MCPClient') as mock_client_class:
+        with patch('agentpress.mcp.server_manager.MCPClient') as mock_client_class:
             # First client succeeds, second fails
             mock_client1 = AsyncMock()
             mock_client1.connect = AsyncMock()
@@ -382,8 +382,8 @@ class TestMCPServerManager:
         """Test manager as context manager."""
         manager = MCPServerManager(sample_server_configs)
         
-        with patch.object(manager, 'connect_to_servers') as mock_connect, \
-             patch.object(manager, 'disconnect_from_servers') as mock_disconnect:
+        with patch.object(manager, 'connect_to_servers', new_callable=AsyncMock) as mock_connect, \
+             patch.object(manager, 'disconnect_from_servers', new_callable=AsyncMock) as mock_disconnect:
             
             async with manager.for_project("test-project") as mgr:
                 assert mgr == manager
@@ -441,10 +441,10 @@ class TestMCPServerManager:
         """Test automatic reconnection to failed servers."""
         manager = MCPServerManager(sample_server_configs)
         
-        # Mock a client that initially fails then succeeds
-        mock_client = AsyncMock()
-        mock_client.name = "calculator-server"
-        mock_client.connected = False
+        # Mock clients - one fails initially, one succeeds
+        mock_client1 = AsyncMock()
+        mock_client1.name = "calculator-server"
+        mock_client1.connected = False
         
         connect_call_count = 0
         async def mock_connect():
@@ -453,15 +453,29 @@ class TestMCPServerManager:
             if connect_call_count == 1:
                 raise Exception("Connection failed")
             else:
-                mock_client.connected = True
+                mock_client1.connected = True
         
-        mock_client.connect = mock_connect
+        mock_client1.connect = mock_connect
         
-        with patch('agentpress.mcp.client.MCPClient', return_value=mock_client):
-            # First connection attempt should fail
+        mock_client2 = AsyncMock()
+        mock_client2.name = "file-server"
+        mock_client2.connected = True
+        mock_client2.connect = AsyncMock()
+        
+        clients = [mock_client1, mock_client2]
+        client_index = 0
+        
+        def get_client(*args, **kwargs):
+            nonlocal client_index
+            client = clients[client_index]
+            client_index += 1
+            return client
+        
+        with patch('agentpress.mcp.server_manager.MCPClient', side_effect=get_client):
+            # First connection attempt - one fails, one succeeds
             await manager.connect_to_servers("test-project")
-            assert len(manager.connected_clients) == 0
+            assert len(manager.connected_clients) == 1  # Only file-server connected
             
-            # Retry connection should succeed
+            # Retry connection should succeed for calculator-server
             await manager.retry_failed_connections()
-            assert len(manager.connected_clients) == 1
+            assert len(manager.connected_clients) == 2  # Both connected now

@@ -290,7 +290,7 @@ class MCPToolGateway:
         await self.unregister_mcp_tools()
         await self.server_manager.disconnect_all()
     
-    async def for_project(self, project_id: str):
+    def for_project(self, project_id: str):
         """Context manager for project-scoped tool registration.
         
         Args:
